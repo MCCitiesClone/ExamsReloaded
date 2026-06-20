@@ -787,43 +787,52 @@ public class ExamManager
         return true;
     }
 
+    /**
+     * Presents the student's current question as a clickable dialog instead of chat text.
+     */
     public static void doExamQuestion(String playerName)
     {
+        Player player = Bukkit.getPlayerExact(playerName);
+
+        if (player == null)
+        {
+            Exams.logDebug("doExamQuestion: player " + playerName + " is not online");
+            return;
+        }
+
         String question = StudentManager.getExamQuestionForStudent(playerName);
         String examName = StudentManager.getExamForStudent(playerName);
         List<String> options = StudentManager.getExamQuestionOptionsForStudent(playerName);
 
-        Exams.sendMessage(playerName, "------------- Exam question " + ChatColor.YELLOW + (StudentManager.getExamProgressIndexForStudent(playerName) + 1) + "/" + getExamNumberOfQuestions(examName) + ChatColor.AQUA + " -------------");
-        Exams.sendMessage(playerName, question);
+        int questionNumber = StudentManager.getExamProgressIndexForStudent(playerName) + 1;
+        int totalQuestions = getExamNumberOfQuestions(examName);
 
-        int n = 0;
+        ExamDialog.show(player, examName, question, options, questionNumber, totalQuestions);
+    }
 
-        for (String option : options)
+    /**
+     * Records the answer the player chose in the dialog, then either opens the next
+     * question's dialog or grades the finished exam.
+     */
+    public static void submitAnswer(Player player, String answer)
+    {
+        String playerName = player.getName();
+
+        if (!StudentManager.isDoingExam(playerName) || StudentManager.getExamForStudent(playerName) == null)
         {
-            switch (n)
-            {
-                case 0:
-                    Exams.sendMessage(playerName, ChatColor.YELLOW + "A - " + ChatColor.AQUA + option);
-                    break;
-                case 1:
-                    Exams.sendMessage(playerName, ChatColor.YELLOW + "B - " + ChatColor.AQUA + option);
-                    break;
-                case 2:
-                    Exams.sendMessage(playerName, ChatColor.YELLOW + "C - " + ChatColor.AQUA + option);
-                    break;
-                case 3:
-                    Exams.sendMessage(playerName, ChatColor.YELLOW + "D - " + ChatColor.AQUA + option);
-                    break;
-            }
-
-            n++;
+            return;
         }
 
-        Exams.sendMessage(playerName, ChatColor.AQUA + "Type " +
-                ChatColor.WHITE + "/exams a" + ChatColor.AQUA + ", " +
-                ChatColor.WHITE + "/exams b" + ChatColor.AQUA + ", " +
-                ChatColor.WHITE + "/exams c" + ChatColor.AQUA + " or " +
-                ChatColor.WHITE + "/exams d" + ChatColor.AQUA + " to answer.");
+        StudentManager.answer(playerName, answer);
+
+        if (nextExamQuestion(playerName))
+        {
+            doExamQuestion(playerName);
+        } else
+        {
+            calculateExamResult(playerName);
+            StudentManager.removeStudent(playerName);
+        }
     }
 
     public static boolean handleNewExamSign(SignChangeEvent event)

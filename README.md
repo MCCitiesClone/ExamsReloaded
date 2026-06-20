@@ -2,9 +2,9 @@
 
 > Exams in Minecraft! Let players take multiple‑choice exams at in‑world signs and automatically reward them with ranks, items, or any console command when they pass.
 
-ExamsReloaded is a Spigot/Bukkit plugin that turns a wall sign into an interactive exam terminal. Players right‑click an **Exam** sign to sign up, answer a randomized set of multiple‑choice questions through chat commands, and — if they score high enough — the server runs the commands you configured (give a rank, hand out items, broadcast a message, etc.).
+ExamsReloaded is a Paper plugin that turns a wall sign into an interactive exam terminal. Players right‑click an **Exam** sign to sign up, answer a randomized set of multiple‑choice questions through Minecraft's native dialog screens, and — if they score high enough — the server runs the commands you configured (give a rank, hand out items, broadcast a message, etc.).
 
-It is a modernized continuation of the original *Exams* plugin, updated for Minecraft 1.20+ and integrated with [Vault](https://www.spigotmc.org/resources/vault.34315/) for economy (exam fees) and permissions/ranks.
+It is a modernized continuation of the original *Exams* plugin, rebuilt on the **Paper Dialog API** (Minecraft **1.21.7+**) and integrated with [Vault](https://www.spigotmc.org/resources/vault.34315/) for economy (exam fees) and permissions/ranks.
 
 ---
 
@@ -31,7 +31,7 @@ It is a modernized continuation of the original *Exams* plugin, updated for Mine
 ## Features
 
 - **Sign‑based exams** — place a wall sign, write the exam name, and players interact with it by right‑clicking.
-- **Multiple‑choice questions** — each question has four options (A–D); a random subset of an exam's question pool is drawn per attempt.
+- **Native dialog questions** — each question opens as a real Minecraft dialog screen (Paper Dialog API) with one clickable button per option (A–D); a random subset of an exam's question pool is drawn per attempt. No chat typing required.
 - **Optional answer shuffling** — randomize the order of answer options so players can't memorize "always B".
 - **Automatic rewards** — run a single command or a list of console commands when a player passes, with `$PlayerName` substitution. Optionally run a command when a player fails.
 - **Prerequisites** — gate exams behind a required rank, a required permission node, and/or having already passed another exam.
@@ -47,8 +47,8 @@ It is a modernized continuation of the original *Exams* plugin, updated for Mine
 
 | | |
 |---|---|
-| **Server** | Spigot / Paper / Bukkit, API version **1.20+** |
-| **Java** | **17+** (the project source targets Java 16, CI builds with JDK 17) |
+| **Server** | **Paper** (or a Paper fork) running Minecraft **1.21.7+** — the native Dialog API is required, so plain Spigot/Bukkit and versions below 1.21.7 are **not** supported |
+| **Java** | **21+** (Paper 1.21.x requires Java 21; CI builds with JDK 21) |
 | **Required dependency** | [Vault](https://www.spigotmc.org/resources/vault.34315/) |
 | **Optional** | An economy plugin (for exam fees) and a permissions provider such as LuckPerms (for ranks/permissions) |
 
@@ -80,8 +80,8 @@ Vault is a hard dependency (`depend: [Vault]` in `plugin.yml`) — the plugin wi
    ```
    (Line 1 must be `Exam`; line 3 is the exam name. Line 2 is decorative.)
 3. Right‑click the sign to sign up. Right‑click again to start.
-4. Read the question in chat and answer with `/exams a`, `/exams b`, `/exams c`, or `/exams d`.
-5. Finish all questions to see your score. Pass, and the exam's reward command runs automatically.
+4. A dialog opens with the question and one button per answer — click the option you think is correct.
+5. Each answer opens the next question's dialog. Finish all questions to see your score. Pass, and the exam's reward command runs automatically.
 
 ---
 
@@ -91,8 +91,8 @@ The exam lifecycle is split across a handful of managers:
 
 1. **Sign placement** (`BlockListener#onSignChange`) — when a sign whose first line is `Exam` is placed, the plugin verifies the player has `exams.place` (or is OP) and that line 3 names a real exam. Otherwise the sign is cancelled and dropped as an item.
 2. **Sign up** (`BlockListener#onPlayerInteract` → `ExamManager#handleNewExamPrerequisites`) — the first right‑click checks all prerequisites (rank, permission, required exam, cooldown, fee). If everything passes, the player is registered as a student and charged any fee.
-3. **Start** — the second right‑click generates the exam: it picks `NumberOfQuestions` *distinct* questions at random from the exam's question pool and serves the first one.
-4. **Answering** (`Commands#commandAnswer` → `StudentManager#answer`) — each `/exams <a-d>` is checked against the stored correct option; correct answers increment the score. The next question is served until the pool is exhausted.
+3. **Start** — the second right‑click generates the exam: it picks `NumberOfQuestions` *distinct* questions at random from the exam's question pool and shows the first one as a native dialog (`ExamManager#doExamQuestion` → `ExamDialog#show`).
+4. **Answering** (`ExamDialog` button callback → `ExamManager#submitAnswer` → `StudentManager#answer`) — each answer is a multi‑action dialog button whose server‑side `customClick` callback submits the chosen option letter; it's checked against the stored correct option and correct answers increment the score. The next question's dialog opens automatically until the pool is exhausted.
 5. **Result** (`ExamManager#calculateExamResult`) — the score is computed as `100 * correctAnswers / NumberOfQuestions`. If it meets `RequiredExamScore`, the reward command(s) run (via the console) and the exam is recorded as passed; otherwise the optional fail command runs.
 
 State lives in flat YAML files via Bukkit's `FileConfiguration`. There is no database.
@@ -218,8 +218,10 @@ An exam sign is a **wall sign** (any wood type, plus crimson/warped) with:
 When placed, the plugin normalizes the sign (rewriting line 1 to `Exam` and line 3 to the canonical exam name, preserving your color codes). Color codes (`&`) are supported and stripped when matching exam names.
 
 - **First right‑click:** signs the player up (runs prerequisite checks and charges any fee).
-- **Second right‑click:** starts the exam, or — if the exam is closed — tells the player when it opens.
-- **Right‑click while in progress:** re‑shows the current question. After the time window closes mid‑exam, the next click finalizes and grades the attempt.
+- **Second right‑click:** starts the exam and opens the first question dialog, or — if the exam is closed — tells the player when it opens.
+- **Right‑click while in progress:** re‑opens the current question's dialog (handy if the player closed it). After the time window closes mid‑exam, the next click finalizes and grades the attempt.
+
+Answers are chosen by clicking buttons in the dialog; closing the dialog simply pauses the attempt, and the player's progress is preserved until they click the sign again.
 
 Only players with `exams.place` (or OPs) can create exam signs; unauthorized placements are cancelled and the sign drops as an item.
 
@@ -233,7 +235,6 @@ Base command: `/exams` (alias `/exam`).
 |---|---|---|
 | `/exams` | — | Show plugin info and exam count. |
 | `/exams help` | `exams.help` | List available commands (filtered by permission). |
-| `/exams a` \| `b` \| `c` \| `d` | `exams.student` | Answer the current exam question. |
 | `/exams list` | `exams.list` | List all defined exams. |
 | `/exams info <exam>` | `exams.info` | Show details for an exam. *(Currently a stub.)* |
 | `/exams reload` | `exams.reload` | Reload `config.yml` and `exams.yml`. |
@@ -243,6 +244,8 @@ Base command: `/exams` (alias `/exam`).
 | `/exams studentinfo <player>` | `exams.studentinfo` | Show a player's exam status and passed exams. |
 
 `reload` and `clean` may also be run from the server console.
+
+> **Answering questions** is no longer a command — players answer by clicking buttons in the exam dialog that opens when they take an exam. The old `/exams a|b|c|d` commands have been removed.
 
 ---
 
@@ -289,11 +292,11 @@ This is a standard Maven project.
 mvn -B package --file pom.xml
 ```
 
-The built jar is written to `target/*.jar`. Dependencies (`spigot-api`, `VaultAPI`) are `provided` scope and pulled from the Spigot and JitPack repositories.
+The built jar is written to `target/*.jar`. Dependencies (`paper-api`, `VaultAPI`) are `provided` scope and pulled from the PaperMC and JitPack repositories. Requires JDK 21.
 
 ### Continuous Integration
 
-`.github/workflows/build.yml` builds with JDK 17 on every push to `master` (and on manual dispatch), uploads the jar as an artifact, and publishes a GitHub Release tagged `build-<run number>` with auto‑generated release notes.
+`.github/workflows/build.yml` builds with JDK 21 on every push to `master` (and on manual dispatch), uploads the jar as an artifact, and publishes a GitHub Release tagged `build-<run number>` with auto‑generated release notes.
 
 ---
 
@@ -301,13 +304,14 @@ The built jar is written to `target/*.jar`. Dependencies (`spigot-api`, `VaultAP
 
 ```
 ExamsReloaded/
-├── pom.xml                              # Maven build (Spigot 1.20.4, VaultAPI 1.7)
+├── pom.xml                              # Maven build (Paper 1.21.8, VaultAPI 1.7, Java 21)
 ├── .github/workflows/build.yml          # CI: build + release on push to master
 └── src/main/
     ├── java/com/dogonfire/exams/
     │   ├── Exams.java                    # Plugin entry point; config load/save, lifecycle
     │   ├── Commands.java                 # /exams command + tab completion
     │   ├── BlockListener.java            # Sign placement & right-click interaction
+    │   ├── ExamDialog.java               # Builds & shows the native question dialog (Paper Dialog API)
     │   ├── ExamManager.java              # Exam definitions, question logic, grading, rewards
     │   ├── StudentManager.java           # Per-player exam state in students.yml
     │   ├── PermissionsManager.java       # Vault permission/rank integration
@@ -333,5 +337,5 @@ ExamsReloaded/
 ## Credits
 
 - **Authors:** DogOnFire, Dartanboy (Dartanman)
-- Built on the [Spigot API](https://www.spigotmc.org/) and [Vault](https://github.com/MilkBowl/Vault).
+- Built on the [Paper API](https://papermc.io/) (Dialog API) and [Vault](https://github.com/MilkBowl/Vault).
 - A reloaded/modernized continuation of the original *Exams* plugin.

@@ -95,25 +95,19 @@ public class Commands
                     commandClean(sender);
                     return true;
                 }
-                if ((args[0].equalsIgnoreCase("a")) || (args[0].equalsIgnoreCase("b")) || (args[0].equalsIgnoreCase("c")) || (args[0].equalsIgnoreCase("d")))
+                if (args[0].equalsIgnoreCase("list"))
                 {
-                    commandAnswer(player, args[0].toLowerCase());
-                } else
-                {
-                    if (args[0].equalsIgnoreCase("list"))
+                    if ((!player.isOp()) && (!player.hasPermission("exams.list")))
                     {
-                        if ((!player.isOp()) && (!player.hasPermission("exams.list")))
-                        {
-                            return false;
-                        }
-
-                        commandList(sender);
-                        return true;
+                        return false;
                     }
 
-                    sender.sendMessage(ChatColor.RED + "Invalid Exams command! Try /exams help");
+                    commandList(sender);
                     return true;
                 }
+
+                sender.sendMessage(ChatColor.RED + "Invalid Exams command! Try /exams help");
+                return true;
             } else
             {
                 if (args.length == 2)
@@ -317,26 +311,6 @@ public class Commands
         return true;
     }
 
-    private void commandAnswer(Player player, String answer)
-    {
-        if (!StudentManager.isDoingExam(player.getName()) || StudentManager.getExamForStudent(player.getName()) == null)
-        {
-            player.sendMessage(ChatColor.RED + "You are not taking any exam!");
-            return;
-        }
-
-        StudentManager.answer(player.getName(), answer);
-
-        if (ExamManager.nextExamQuestion(player.getName()))
-        {
-            ExamManager.doExamQuestion(player.getName());
-        } else
-        {
-            ExamManager.calculateExamResult(player.getName());
-            StudentManager.removeStudent(player.getName());
-        }
-    }
-
     private boolean commandPluginInfo(CommandSender sender)
     {
         sender.sendMessage(ChatColor.YELLOW + "---------------- " + Exams.instance().getDescription().getFullName() + " ----------------");
@@ -353,11 +327,8 @@ public class Commands
     {
         sender.sendMessage(ChatColor.YELLOW + "---------------- " + Exams.instance().getDescription().getFullName() + " ----------------");
         sender.sendMessage(ChatColor.AQUA + "/exams" + ChatColor.WHITE + " - Basic info");
-        //sender.sendMessage(ChatColor.AQUA + "/exams list" + ChatColor.WHITE + " - List of all exams");
-        sender.sendMessage(ChatColor.AQUA + "/exams a" + ChatColor.WHITE + " - Answer A to an exam question");
-        sender.sendMessage(ChatColor.AQUA + "/exams b" + ChatColor.WHITE + " - Answer B to an exam question");
-        sender.sendMessage(ChatColor.AQUA + "/exams c" + ChatColor.WHITE + " - Answer C to an exam question");
-        sender.sendMessage(ChatColor.AQUA + "/exams d" + ChatColor.WHITE + " - Answer D to an exam question");
+        sender.sendMessage(ChatColor.AQUA + "/exams list" + ChatColor.WHITE + " - List of all exams");
+        sender.sendMessage(ChatColor.WHITE + "Right-click an Exam sign and click your answers in the dialog.");
         if ((sender.isOp()) || (sender.hasPermission("exams.reload")))
         {
             sender.sendMessage(ChatColor.AQUA + "/exams reload" + ChatColor.WHITE + " - Reloads the Exams system");
@@ -444,13 +415,6 @@ public class Commands
                 }
                 if (player != null)
                 {
-                    if (StudentManager.isDoingExam(player.getName()) && StudentManager.getExamForStudent(player.getName()) != null)
-                    {
-                        arg1.add("a");
-                        arg1.add("b");
-                        arg1.add("c");
-                        arg1.add("d");
-                    }
                     if (player.isOp() || PermissionsManager.hasPermission(player, "exams.test"))
                     {
                         arg1.add("test");
